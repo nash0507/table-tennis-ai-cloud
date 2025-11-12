@@ -41,7 +41,7 @@ async def upload_video(file: UploadFile = File(...)) -> VideoUploadResponse:
     except Exception as exc:  # pragma: no cover - remote store best-effort
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to sync video to Cloudflare dataset: {exc}",
+            detail=f"Failed to sync video to IBM Cloud Object Storage dataset: {exc}",
         ) from exc
     return VideoUploadResponse(video_id=video_id)
 
@@ -62,7 +62,7 @@ def analyze_video(video_id: str) -> AnalyzeResponse:
     except Exception as exc:  # pragma: no cover - remote store best-effort
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to sync features to Cloudflare dataset: {exc}",
+            detail=f"Failed to sync features to IBM Cloud Object Storage dataset: {exc}",
         ) from exc
 
     training_frame = db.load_all_features()

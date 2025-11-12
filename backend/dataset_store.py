@@ -1,4 +1,5 @@
-"""Cloudflare dataset repository helpers using fsspec/s3fs."""
+"""IBM Cloud Object Storage dataset repository helpers using fsspec/s3fs."""
+
 from __future__ import annotations
 
 from typing import Iterable, List, Optional
