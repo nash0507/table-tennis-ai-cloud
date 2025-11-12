@@ -65,3 +65,21 @@ def load_report(video_id: str) -> Optional[dict]:
     if file_path.exists():
         return json.loads(file_path.read_text(encoding="utf-8"))
     return None
+
+
+def load_all_features() -> pd.DataFrame:
+    """Return all stored feature tables for incremental training."""
+    ensure_directories()
+    pattern = f"{settings.features_prefix}*{settings.features_suffix}"
+    frames = []
+    for file_path in sorted(settings.processed_dir.glob(pattern)):
+        try:
+            frames.append(pd.read_csv(file_path))
+        except pd.errors.EmptyDataError:
+            continue
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True)
+    if {"video_id", "event_id"}.issubset(combined.columns):
+        combined = combined.drop_duplicates(subset=["video_id", "event_id"], keep="last")
+    return combined

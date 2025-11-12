@@ -46,6 +46,10 @@
 ## 安裝與執行
 ```bash
 pip install -r requirements.txt
+
+# 指定雲端模型儲存位置（例：S3）
+export TTAI_MODEL_REPOSITORY_URI="s3://your-model-bucket/table-tennis-ai"
+
 uvicorn backend.app:app --reload
 streamlit run frontend/dashboard.py
 ```
@@ -56,6 +60,22 @@ curl -F "file=@sample.mp4" http://127.0.0.1:8000/api/videos
 curl -X POST http://127.0.0.1:8000/api/videos/<video_id>/analyze
 curl http://127.0.0.1:8000/api/videos/<video_id>/report
 ```
+
+## 雲端模型儲存與自動學習流程
+1. **建立雲端儲存**：於 AWS S3、GCP Cloud Storage 或其他 fsspec 支援的物件儲存建立資料夾/桶（建議預設目錄：`table-tennis-ai/`）。
+2. **設定權限與認證**：
+   - S3：使用 `aws configure` 或環境變數 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`。
+   - GCS：設定 `GOOGLE_APPLICATION_CREDENTIALS`。
+3. **指定儲存位址**：設定環境變數 `TTAI_MODEL_REPOSITORY_URI` 指向雲端路徑，例如：
+   ```bash
+   export TTAI_MODEL_REPOSITORY_URI="s3://your-model-bucket/table-tennis-ai"
+   ```
+   若使用具備自動掛載的網路磁碟，可直接填入掛載路徑。
+4. **自動訓練流程**：
+   - 每次呼叫 `/api/videos/{video_id}/analyze` 時，系統會收集 `data/processed/` 下所有 `features_*.csv`，合併為完整訓練集。
+   - 決策樹重新訓練後會立即上傳至雲端儲存，後續節點會從雲端載入最新模型，不再依賴本地檔案。
+   - 隨著影片與人工標註累積，模型會自動涵蓋更多手法並改善預測精度。
+5. **版本管理建議**：雲端儲存可配合物件版本或日期子資料夾（例：`s3://bucket/table-tennis-ai/2024-05-01/decision_tree.pkl`）以保留歷史模型。
 
 ## Pipeline 說明
 1. **/api/videos**：接收 mp4 影片並儲存於 `data/raw/`。
@@ -80,11 +100,11 @@ flake8
 
 ## 標註與微調流程
 1. 將人工標註結果追加於 `data/processed/labels.csv`，格式：`video_id,t_ms,stroke_good`。
-2. 重新呼叫 `/api/videos/{video_id}/analyze` 時會自動合併標註並重新訓練決策樹。
+2. 每次分析都會重新整理所有 `features_*.csv` 與標註，訓練後再同步至雲端模型儲存。
 3. 完成分析後的報告 JSON 可作為教練回饋或持續調整模型的依據。
 
 ## 注意事項
-- 首次分析時若 `backend/models/` 下沒有模型，系統會依據當前特徵自動訓練並於該資料夾產生 `.pkl` 檔案。
+- 雲端模型儲存預設由環境變數 `TTAI_MODEL_REPOSITORY_URI` 控制，若未指定則會寫入本機 `data/model_store` 目錄。
 - 若需 GPU/加速，可將 MediaPipe 切換為對應硬體版本或使用更進階姿態估計器。
 
 ## 模型用途與限制

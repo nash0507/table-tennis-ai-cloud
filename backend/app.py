@@ -50,7 +50,8 @@ def analyze_video(video_id: str) -> AnalyzeResponse:
     feature_df = features.merge_labels(feature_df, labels_df)
     db.save_features(video_id, feature_df)
 
-    classifier = classify.train_or_load(feature_df)
+    training_frame = db.load_all_features()
+    classifier = classify.train_with_history(training_frame)
     predictions = classifier.predict(feature_df)
     aggregates = metrics.aggregate_metrics(feature_df, predictions)
 

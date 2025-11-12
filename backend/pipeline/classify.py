@@ -1,15 +1,13 @@
 """Classification stage using scikit-learn decision trees."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Dict
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.tree import DecisionTreeClassifier
 
-from ..config import settings
+from ..model_store import MODEL_STORE
 
 FEATURE_COLUMNS = [
     "shoulder_angle",
@@ -75,34 +73,37 @@ def train_classifier(features: pd.DataFrame) -> StrokeClassifier:
     return StrokeClassifier(hand_model, quality_model)
 
 
-def save_classifier(classifier: StrokeClassifier, model_dir: Path | None = None) -> None:
-    model_dir = Path(model_dir or settings.models_dir)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump(classifier.hand_model, model_dir / "stroke_hand_tree.pkl")
-    joblib.dump(classifier.quality_model, model_dir / "decision_tree.pkl")
+def save_classifier(classifier: StrokeClassifier) -> None:
+    MODEL_STORE.save("stroke_hand_tree.pkl", classifier.hand_model)
+    MODEL_STORE.save("decision_tree.pkl", classifier.quality_model)
 
 
-def load_classifier(model_dir: Path | None = None) -> StrokeClassifier | None:
-    model_dir = Path(model_dir or settings.models_dir)
-    hand_path = model_dir / "stroke_hand_tree.pkl"
-    quality_path = model_dir / "decision_tree.pkl"
-    if hand_path.exists() and quality_path.exists():
-        try:
-            hand_model = joblib.load(hand_path)
-            quality_model = joblib.load(quality_path)
-        except Exception:
-            return None
-        if not isinstance(hand_model, DecisionTreeClassifier) or not isinstance(
-            quality_model, DecisionTreeClassifier
-        ):
-            return None
+def load_classifier() -> StrokeClassifier | None:
+    hand_model = MODEL_STORE.load("stroke_hand_tree.pkl")
+    quality_model = MODEL_STORE.load("decision_tree.pkl")
+    if isinstance(hand_model, DecisionTreeClassifier) and isinstance(
+        quality_model, DecisionTreeClassifier
+    ):
         return StrokeClassifier(hand_model, quality_model)
     return None
 
 
-def train_or_load(features: pd.DataFrame) -> StrokeClassifier:
-    classifier = load_classifier()
-    if classifier is None:
-        classifier = train_classifier(features)
-        save_classifier(classifier)
+def train_with_history(features: pd.DataFrame | None) -> StrokeClassifier:
+    if features is None or features.empty:
+        existing = load_classifier()
+        if existing is None:
+            raise ValueError("No training data available to build classifier")
+        return existing
+
+    required = set(FEATURE_COLUMNS + ["stroke_hand", "stroke_good"])
+    missing = required - set(features.columns)
+    if missing:
+        raise ValueError(f"Missing columns for training: {sorted(missing)}")
+
+    features = features.copy()
+    features.sort_values(["video_id", "event_id"], inplace=True)
+    features = features.drop_duplicates(subset=["video_id", "event_id"], keep="last")
+
+    classifier = train_classifier(features)
+    save_classifier(classifier)
     return classifier
