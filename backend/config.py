@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     model_repository_uri: str = Field(
         default_factory=lambda: str(Path("data/model_store").absolute())
     )
+    dataset_repository_uri: str = Field(
+        default_factory=lambda: str(Path("data/cloudflare_dataset").absolute())
+    )
+    dataset_storage_options: dict = Field(default_factory=dict)
+    dataset_raw_prefix: str = "videos/"
+    dataset_features_prefix: str = "features/"
 
     class Config:
         env_prefix = "TTAI_"

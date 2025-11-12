@@ -8,6 +8,7 @@ from typing import Optional
 import pandas as pd
 
 from .config import settings
+from .dataset_store import DATASET_STORE
 
 
 def ensure_directories() -> None:
@@ -77,6 +78,10 @@ def load_all_features() -> pd.DataFrame:
             frames.append(pd.read_csv(file_path))
         except pd.errors.EmptyDataError:
             continue
+    try:
+        frames.extend(list(DATASET_STORE.iter_feature_tables()))
+    except Exception:
+        pass
     if not frames:
         return pd.DataFrame()
     combined = pd.concat(frames, ignore_index=True)

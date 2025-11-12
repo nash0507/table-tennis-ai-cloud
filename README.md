@@ -47,8 +47,12 @@
 ```bash
 pip install -r requirements.txt
 
-# 指定雲端模型儲存位置（例：S3）
+# 指定雲端模型儲存位置（例：S3/R2）
 export TTAI_MODEL_REPOSITORY_URI="s3://your-model-bucket/table-tennis-ai"
+
+# 指定 Cloudflare R2 影片資料集（可讀寫）
+export TTAI_DATASET_REPOSITORY_URI="s3://table-tennis-dataset"
+export TTAI_DATASET_STORAGE_OPTIONS='{"key":"<R2_ACCESS_KEY>","secret":"<R2_SECRET>","client_kwargs":{"endpoint_url":"https://<accountid>.r2.cloudflarestorage.com"}}'
 
 uvicorn backend.app:app --reload
 streamlit run frontend/dashboard.py
@@ -61,45 +65,50 @@ curl -X POST http://127.0.0.1:8000/api/videos/<video_id>/analyze
 curl http://127.0.0.1:8000/api/videos/<video_id>/report
 ```
 
-## 雲端模型儲存與自動學習流程
-1. **建立雲端儲存**：於 AWS S3、GCP Cloud Storage 或其他 fsspec 支援的物件儲存建立資料夾/桶（建議預設目錄：`table-tennis-ai/`）。
-2. **設定權限與認證**：
-   - S3：使用 `aws configure` 或環境變數 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`。
-   - GCS：設定 `GOOGLE_APPLICATION_CREDENTIALS`。
-3. **指定儲存位址**：設定環境變數 `TTAI_MODEL_REPOSITORY_URI` 指向雲端路徑，例如：
+## 雲端模型與 Cloudflare R2 自動學習流程
+1. **建立雲端儲存**：
+   - 模型：於 Cloudflare R2 或任何 fsspec 支援的物件儲存建立桶位（例：`table-tennis-ai-models`）。
+   - 資料集：在 R2 建立第二個桶位（例：`table-tennis-dataset`）儲存原始影片與特徵 CSV。
+2. **設定權限與認證**：在 Cloudflare Dashboard → R2 建立 `Access Keys`，取得 `Access Key ID` 與 `Secret Access Key`。
+3. **設定環境變數**：於部署環境或本地終端設定：
    ```bash
-   export TTAI_MODEL_REPOSITORY_URI="s3://your-model-bucket/table-tennis-ai"
+   export TTAI_MODEL_REPOSITORY_URI="s3://table-tennis-ai-models"
+   export TTAI_DATASET_REPOSITORY_URI="s3://table-tennis-dataset"
+   export TTAI_DATASET_STORAGE_OPTIONS='{"key":"<R2_ACCESS_KEY>","secret":"<R2_SECRET>","client_kwargs":{"endpoint_url":"https://<accountid>.r2.cloudflarestorage.com"}}'
    ```
-   若使用具備自動掛載的網路磁碟，可直接填入掛載路徑。
+   - `endpoint_url` 需替換為 Cloudflare 提供的 `https://<accountid>.r2.cloudflarestorage.com`。
+   - 若模型與資料集都放在 R2，可共用同組金鑰；亦可各自配置。
 4. **自動訓練流程**：
-   - 每次呼叫 `/api/videos/{video_id}/analyze` 時，系統會收集 `data/processed/` 下所有 `features_*.csv`，合併為完整訓練集。
-   - 決策樹重新訓練後會立即上傳至雲端儲存，後續節點會從雲端載入最新模型，不再依賴本地檔案。
-   - 隨著影片與人工標註累積，模型會自動涵蓋更多手法並改善預測精度。
-5. **版本管理建議**：雲端儲存可配合物件版本或日期子資料夾（例：`s3://bucket/table-tennis-ai/2024-05-01/decision_tree.pkl`）以保留歷史模型。
+   - `/api/videos` 上傳的 mp4 會同步寫入本地 `data/raw/` 與 R2 `videos/<video_id>.mp4`。
+   - `/api/videos/{video_id}/analyze` 產出的特徵 CSV 會同步寫入 R2 `features/features_<video_id>.csv`。
+   - 訓練時會合併本地與 R2 的歷史特徵，再將最新決策樹模型發佈到 `TTAI_MODEL_REPOSITORY_URI`。
+   - 連續上傳影片並追加（可選的）`labels.csv` 時，模型會在每次分析後自動學習並提高精度。
+5. **版本管理建議**：可在 R2 Bucket 啟用 Object Versioning，或自行以日期區分路徑（例：`models/2024-05-01/decision_tree.pkl`）。
 
 ## 操作步驟：自動訓練與部署
-1. **安裝依賴與設定環境變數**：在乾淨的虛擬環境中執行 `pip install -r requirements.txt`，並設定
-   `TTAI_MODEL_REPOSITORY_URI` 指向雲端儲存位置（若未設定則會使用 `data/model_store` 本地路徑）。
+1. **安裝依賴與設定環境變數**：在乾淨的虛擬環境中執行 `pip install -r requirements.txt`，並設定：
+   - `TTAI_MODEL_REPOSITORY_URI` 指向模型雲端儲存位置（若未設定則使用 `data/model_store`）。
+   - `TTAI_DATASET_REPOSITORY_URI` 指向 Cloudflare R2 資料集（若未設定則使用 `data/cloudflare_dataset`）。
+   - `TTAI_DATASET_STORAGE_OPTIONS` 為 JSON 字串，內含 `key`、`secret` 與 `client_kwargs.endpoint_url`（本地測試可省略）。
 2. **啟動服務**：分別啟動 FastAPI 與 Streamlit（`uvicorn backend.app:app --reload` 與 `streamlit run frontend/dashboard.py`）。
 3. **上傳第一支影片並分析**：
    - 以 API 或前端上傳 10–15 秒的 `sample.mp4`。
-   - 呼叫 `/api/videos/{video_id}/analyze`。
-   - 後端會擷取關鍵點、建立特徵並重新訓練決策樹，新的模型會立即上傳到雲端儲存。
+   - 後端會在儲存本地檔案後，將影片同步到 R2 `videos/<video_id>.mp4`；若同步失敗會回傳 502 以提醒重新上傳或檢查權限。
+   - 呼叫 `/api/videos/{video_id}/analyze` 觸發整個 pipeline，並於完成時將 `features_<video_id>.csv` 同步到 R2。
 4. **累積更多影片促進自動學習**：
-   - 針對第二支、第三支……影片重複步驟 3，`data/processed/` 會累積 `features_*.csv`。
-   - 每次分析時 `train_with_history` 會讀取所有歷史特徵與（可選的）`labels.csv`，以完整資料重新訓練模型。
+   - 針對第二支、第三支……影片重複步驟 3，R2 `features/` 目錄會累積所有特徵 CSV。
+   - 每次分析時 `train_with_history` 會合併本地與 R2 的歷史特徵，以及（可選的）`labels.csv`，重新訓練模型並上傳最新權重。
    - Streamlit 儀表板載入最新報告即可看到模型更新後的指標與建議。
 5. **加入人工標註提升精準度**：
    - 在 `data/processed/labels.csv` 追加格式為 `video_id,t_ms,stroke_good` 的標註。
    - 重新呼叫 `/api/videos/{video_id}/analyze`（任一影片）即會觸發重新訓練，並把新的模型上傳至雲端。
-6. **驗證雲端模型是否更新**：
-   - 以 `aws s3 ls s3://your-model-bucket/table-tennis-ai/` 或對應儲存指令，確認最新的 `decision_tree.pkl` 與
-     `stroke_hand_tree.pkl` 時戳已更新。
-   - 若使用本地掛載，可直接檢查 `data/model_store/` 內的 `.pkl` 檔案修改時間。
+6. **驗證雲端模型與資料集是否更新**：
+   - 使用 `aws s3 ls s3://table-tennis-ai-models/` 或 `rclone ls r2:table-tennis-dataset/features/` 確認 `.pkl` 與 `features_*.csv` 的時間戳。
+   - 若設定為本地測試，可直接檢查 `data/model_store/` 與 `data/cloudflare_dataset/` 內檔案的修改時間。
 7. **執行測試**：`pytest` 與 `flake8` 可驗證特徵、分類與指標邏輯皆運作正常。
 
 ## Pipeline 說明
-1. **/api/videos**：接收 mp4 影片並儲存於 `data/raw/`。
+1. **/api/videos**：接收 mp4 影片，先寫入 `data/raw/`，再同步到 Cloudflare R2 `videos/` 目錄。
 2. **/api/videos/{video_id}/analyze**：
    - `extract.py` 以 MediaPipe（若無則使用啟發式）擷取肩肘腕與球的軌跡並切割成揮拍事件。
    - `features.py` 計算幾何角度、揮拍方向、九宮格落點、發/接球旗標等特徵。
@@ -126,6 +135,7 @@ flake8
 
 ## 注意事項
 - 雲端模型儲存預設由環境變數 `TTAI_MODEL_REPOSITORY_URI` 控制，若未指定則會寫入本機 `data/model_store` 目錄。
+- Cloudflare R2 影片與特徵同步由 `TTAI_DATASET_REPOSITORY_URI` 與 `TTAI_DATASET_STORAGE_OPTIONS` 控制，若未設定則落在本機 `data/cloudflare_dataset`。
 - 若需 GPU/加速，可將 MediaPipe 切換為對應硬體版本或使用更進階姿態估計器。
 
 ## 模型用途與限制
