@@ -77,6 +77,27 @@ curl http://127.0.0.1:8000/api/videos/<video_id>/report
    - 隨著影片與人工標註累積，模型會自動涵蓋更多手法並改善預測精度。
 5. **版本管理建議**：雲端儲存可配合物件版本或日期子資料夾（例：`s3://bucket/table-tennis-ai/2024-05-01/decision_tree.pkl`）以保留歷史模型。
 
+## 操作步驟：自動訓練與部署
+1. **安裝依賴與設定環境變數**：在乾淨的虛擬環境中執行 `pip install -r requirements.txt`，並設定
+   `TTAI_MODEL_REPOSITORY_URI` 指向雲端儲存位置（若未設定則會使用 `data/model_store` 本地路徑）。
+2. **啟動服務**：分別啟動 FastAPI 與 Streamlit（`uvicorn backend.app:app --reload` 與 `streamlit run frontend/dashboard.py`）。
+3. **上傳第一支影片並分析**：
+   - 以 API 或前端上傳 10–15 秒的 `sample.mp4`。
+   - 呼叫 `/api/videos/{video_id}/analyze`。
+   - 後端會擷取關鍵點、建立特徵並重新訓練決策樹，新的模型會立即上傳到雲端儲存。
+4. **累積更多影片促進自動學習**：
+   - 針對第二支、第三支……影片重複步驟 3，`data/processed/` 會累積 `features_*.csv`。
+   - 每次分析時 `train_with_history` 會讀取所有歷史特徵與（可選的）`labels.csv`，以完整資料重新訓練模型。
+   - Streamlit 儀表板載入最新報告即可看到模型更新後的指標與建議。
+5. **加入人工標註提升精準度**：
+   - 在 `data/processed/labels.csv` 追加格式為 `video_id,t_ms,stroke_good` 的標註。
+   - 重新呼叫 `/api/videos/{video_id}/analyze`（任一影片）即會觸發重新訓練，並把新的模型上傳至雲端。
+6. **驗證雲端模型是否更新**：
+   - 以 `aws s3 ls s3://your-model-bucket/table-tennis-ai/` 或對應儲存指令，確認最新的 `decision_tree.pkl` 與
+     `stroke_hand_tree.pkl` 時戳已更新。
+   - 若使用本地掛載，可直接檢查 `data/model_store/` 內的 `.pkl` 檔案修改時間。
+7. **執行測試**：`pytest` 與 `flake8` 可驗證特徵、分類與指標邏輯皆運作正常。
+
 ## Pipeline 說明
 1. **/api/videos**：接收 mp4 影片並儲存於 `data/raw/`。
 2. **/api/videos/{video_id}/analyze**：
