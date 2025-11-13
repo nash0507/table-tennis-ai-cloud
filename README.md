@@ -63,6 +63,17 @@ uvicorn backend.app:app --reload
 streamlit run frontend/dashboard.py
 ```
 
+### 一鍵啟動網站（推薦）
+若希望一次啟動 FastAPI 後端與 Streamlit 儀表板，可執行隨附腳本：
+
+```bash
+bash scripts/launch_web.sh
+```
+
+- 預設會在 <http://127.0.0.1:8000> 啟動 API，並於 <http://127.0.0.1:8501> 啟動儀表板。
+- 可透過環境變數 `BACKEND_HOST`、`BACKEND_PORT`、`FRONTEND_PORT` 覆寫預設連線位置，方便部署到雲端或內部網路。
+- 結束 Streamlit 視窗（Ctrl+C）時，腳本會自動回收後端程序。
+
 ## 範例 API 流程
 ```bash
 curl -F "file=@sample.mp4" http://127.0.0.1:8000/api/videos
@@ -130,6 +141,7 @@ curl http://127.0.0.1:8000/api/videos/<video_id>/report
 - 上傳影片並取得 `video_id`。
 - 呼叫分析 API，顯示報告摘要。
 - 提供九宮格熱圖、雷達圖、特徵重要度條形圖與建議卡片。
+- 若使用 `scripts/launch_web.sh`，瀏覽器開啟 <http://127.0.0.1:8501> 並依照側欄提示完成上傳、分析與報告檢視。
 
 ## 測試
 ```bash
